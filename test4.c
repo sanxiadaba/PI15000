@@ -1,52 +1,55 @@
 #include <stdio.h>
 
-// 用长除法、竖式乘法计算级数
-// 数组的第一个元素存储的是最后结果的整数部分
-// 后2800存储最后结果的小数部分
-int ans_arr[2801] = {0};
-// 展开到2800
-int n = 2800;
+/*
+ * Evaluate
+ *   pi / 2 = 1 + 1/3 * (1 + 2/5 * (1 + 3/7 * (...)))
+ * with decimal long multiplication and division.
+ */
+enum
+{
+	DECIMAL_DIGITS = 2800,
+	GUARD_DIGITS = 32,
+	STORED_DIGITS = DECIMAL_DIGITS + GUARD_DIGITS,
+	SERIES_TERMS = (STORED_DIGITS + 1) * 14 / 4 + 14
+};
+
+static int answer[STORED_DIGITS + 1];
 
 int main(void)
 {
-	// 从里向外展开
-	for (int j = n; j >= 1; j--)
+	for (int term = SERIES_TERMS; term >= 1; --term)
 	{
-		// 进位 本位 商 余数  乘法、除法用到的变量
-		int jin = 0;
-		int ben = 0;
-		int shang = 0;
-		int yushu = 0;
-
-		// 乘法，ans_arr每一个元素都乘以变量（注意进位）
-		for (int i = n; i > 0; i--)
+		int carry = 0;
+		for (int i = STORED_DIGITS; i > 0; --i)
 		{
-			ben = (ans_arr[i] * j + jin) % 10;
-			jin = (ans_arr[i] * j + jin) / 10;
-			ans_arr[i] = ben;
+			const int value = answer[i] * term + carry;
+			answer[i] = value % 10;
+			carry = value / 10;
 		}
-		// 对于乘，第一个元素在这特殊处理，是因为计算到第一个元素后就没了
-		// 计算到这，不用考虑进位、本位
-		ans_arr[0] =  ans_arr[0]  * j + jin;
+		answer[0] = answer[0] * term + carry;
 
-		// 除法，ans_arr每一个元素都除以变量（注意余数）
-		for (int i = 0; i < n + 1; i++)
+		const int denominator = 2 * term + 1;
+		int remainder = 0;
+		for (int i = 0; i <= STORED_DIGITS; ++i)
 		{
-			shang = (ans_arr[i] + 10 * yushu) / (2 * j + 1);
-			yushu = (ans_arr[i] + 10 * yushu) % (2 * j + 1);
-			ans_arr[i] = shang;
+			const int value = answer[i] + 10 * remainder;
+			answer[i] = value / denominator;
+			remainder = value % denominator;
 		}
-
-		// 加上算法里的1
-		ans_arr[0] += 1;
+		answer[0] += 1;
 	}
 
-	// 先打印整数部分
-	printf("%d.", ans_arr[0]);
-	// 打印小数部分
-	for (int i = 1; i < 2800; i++)
+	if (printf("%d.", answer[0]) < 0)
 	{
-		printf("%d", ans_arr[i]);
+		return 1;
 	}
-	return 0;
+	for (int i = 1; i <= DECIMAL_DIGITS; ++i)
+	{
+		if (putchar('0' + answer[i]) == EOF)
+		{
+			return 1;
+		}
+	}
+
+	return putchar('\n') == EOF ? 1 : 0;
 }

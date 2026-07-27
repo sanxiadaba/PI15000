@@ -1,10 +1,11 @@
 #include <stdio.h>
-// 2/3 输出
+
+/* Demonstrate the precision of an ordinary floating-point division. */
 int main(void)
 {
-	int a = 2;
-	int b = 3;
-	printf("%lf", (double)a / (double)b);
+	const int numerator = 2;
+	const int denominator = 3;
 
+	printf("%.6f\n", (double)numerator / (double)denominator);
 	return 0;
 }

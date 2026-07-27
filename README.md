@@ -1,7 +1,63 @@
 # PI15000
 
-以上代码均在本地环境编译通过，我的环境是：gcc version 8.1.0 (x86_64-win32-seh-rev0, Built by MinGW-W64 project)
+这个仓库从普通浮点除法开始，逐步推导到能够连续生成圆周率数字的
+spigot 算法。最终的 `test7.c` 是标准 C11 版本的紧凑写法，可输出
+15000 个有效数字；`test6.c` 是可读、可配置和经过测试的正式版本。
 
-test6.c为改进的计算代码，可计算PI后数十万小数
+相关视频：[两行代码计算 PI 后 15,000 位](https://www.bilibili.com/video/BV1Tu4y1h7Qc/)
 
-具体视频见：[两行代码——计算PI后15,000位_哔哩哔哩_bilibili](https://www.bilibili.com/video/BV1Tu4y1h7Qc/?vd_source=5b90b82c89d852d98d402593e8fed710)
+## 文件说明
+
+| 文件 | 内容 |
+| --- | --- |
+| `test2.c` | 展示普通浮点除法的有限精度 |
+| `test3.c` | 用长除法输出一个有理近似能够保证的 34 位小数 |
+| `test4.c` | 用十进制数组计算 `pi / 2` 的 2800 位小数 |
+| `test5.c` | 在 `test4.c` 基础上得到 pi 的 2800 位小数 |
+| `test6.c` | 支持任意非负小数位数的正式 CLI |
+| `test7.c` | 保留代码高尔夫风格的 15000 位紧凑实现 |
+
+## 构建和测试
+
+Windows MinGW：
+
+```powershell
+mingw32-make
+mingw32-make test
+```
+
+Linux/macOS：
+
+```bash
+make
+make test
+```
+
+构建使用 C11，并开启 `-Wall -Wextra -Wpedantic -Wconversion -Werror`。
+测试仅依赖 Python 3 标准库，通过 Chudnovsky 算法生成独立参考值，覆盖
+完整 15000 位输出、短输出边界和非法参数。
+
+## 使用
+
+`pi` 的参数表示小数点后的位数；省略参数时默认输出 15000 位小数。
+
+```powershell
+.\pi.exe 100
+.\pi.exe 20000 > pi.txt
+```
+
+输出是标准形式，例如 `pi 5` 输出：
+
+```text
+3.14159
+```
+
+## 算法
+
+算法以 10000 为基数，每轮生成 4 个数字。余数数组初始值为
+`10000 / 5 = 2000`，每输出一组数字将级数深度减少 14，即平均每个数字
+需要 3.5 个级数项。
+
+时间复杂度为 `O(n^2)`，空间复杂度为 `O(n)`。这个实现适合教学和几万位
+规模；计算几十万位以上时，建议使用 Chudnovsky 二分拆分算法以及
+GMP/MPIR 等高性能大整数库。

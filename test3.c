@@ -1,27 +1,29 @@
+#include <stdint.h>
 #include <stdio.h>
-#define ll long long int
-//  用长除法计算大数相除
-ll a = 430010946591069243;
-ll b = 136876735467187340;
 
-ll ans_arr[100] = {0};
+/* This rational approximation agrees with pi for 34 decimal places. */
+enum { DECIMAL_DIGITS = 34 };
 
 int main(void)
 {
-	ll shang = 0;
-	ll yushu = 0;
-	for (int i = 0; i < 100; i++)
+	uint64_t numerator = UINT64_C(430010946591069243);
+	const uint64_t denominator = UINT64_C(136876735467187340);
+	uint64_t remainder = numerator % denominator;
+
+	if (printf("%llu.", (unsigned long long)(numerator / denominator)) < 0)
 	{
-		shang = a / b;
-		yushu = a - (b * shang);
-		ans_arr[i] = shang;
-		a = yushu * 10;
+		return 1;
 	}
 
-	printf("%I64d.", ans_arr[0]);
-	for (int i = 1; i < 100; i++)
+	for (int i = 0; i < DECIMAL_DIGITS; ++i)
 	{
-		printf("%I64d", ans_arr[i]);
+		numerator = remainder * UINT64_C(10);
+		if (putchar((int)('0' + numerator / denominator)) == EOF)
+		{
+			return 1;
+		}
+		remainder = numerator % denominator;
 	}
-	return 0;
+
+	return putchar('\n') == EOF ? 1 : 0;
 }
