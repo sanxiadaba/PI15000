@@ -45,6 +45,19 @@ static int write_char(int character)
 	return putchar(character) == EOF ? 0 : 1;
 }
 
+static int write_span(const char *digits, size_t count)
+{
+	for (size_t i = 0; i < count; ++i)
+	{
+		if (!write_char(digits[i]))
+		{
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
 static int write_pi(size_t decimal_digits)
 {
 	size_t significant_digits;
@@ -52,7 +65,6 @@ static int write_pi(size_t decimal_digits)
 	size_t terms;
 	uint64_t *remainders;
 	uint64_t accumulator = 0;
-	uint64_t previous = 0;
 	size_t decimals_remaining = decimal_digits;
 
 	if (decimal_digits == SIZE_MAX || decimal_digits + 1 > SIZE_MAX - 3)
@@ -70,13 +82,17 @@ static int write_pi(size_t decimal_digits)
 	}
 	terms = blocks * TERMS_PER_BLOCK;
 
-#if SIZE_MAX > UINT64_MAX / UINT64_C(40000)
-	if ((uintmax_t)terms > UINT64_MAX / UINT64_C(40000))
+	/*
+	 * Inside the loop accumulator < 2 * index and remainders[index] < 2 * index,
+	 * so accumulator * index + remainders[index] * BASE < 2 * terms^2 + 20000 * terms.
+	 * The threshold below keeps that product inside uint64_t; in practice the
+	 * allocation limit is reached long before this one.
+	 */
+	if (terms > UINT64_C(3000000000))
 	{
 		fprintf(stderr, "Requested precision is too large.\n");
 		return 0;
 	}
-#endif
 	if (terms >= SIZE_MAX / sizeof(*remainders))
 	{
 		fprintf(stderr, "Requested precision is too large.\n");
@@ -100,8 +116,8 @@ static int write_pi(size_t decimal_digits)
 		char chunk[DIGITS_PER_BLOCK + 1];
 		size_t index = depth;
 
-		previous = accumulator % BASE;
-		accumulator = previous;
+		const uint64_t low = accumulator % BASE;
+		accumulator = low;
 		while (index > 0)
 		{
 			const uint64_t denominator = UINT64_C(2) * (uint64_t)index - 1;
@@ -112,7 +128,7 @@ static int write_pi(size_t decimal_digits)
 			--index;
 		}
 
-		const uint64_t group = previous + accumulator / BASE;
+		const uint64_t group = low + accumulator / BASE;
 		if (group >= BASE ||
 			snprintf(chunk, sizeof(chunk), "%04llu", (unsigned long long)group) != DIGITS_PER_BLOCK)
 		{
@@ -121,37 +137,25 @@ static int write_pi(size_t decimal_digits)
 			return 0;
 		}
 
-		if (depth == terms)
-		{
-			if (!write_char(chunk[0]) ||
-				(decimal_digits > 0 && !write_char('.')))
-			{
-				free(remainders);
-				return 0;
-			}
+		const size_t first = (depth == terms) ? 1 : 0;
+		const size_t available = DIGITS_PER_BLOCK - first;
+		const size_t count = decimals_remaining < available ? decimals_remaining : available;
 
-			for (size_t i = 1; i < DIGITS_PER_BLOCK && decimals_remaining > 0; ++i)
-			{
-				if (!write_char(chunk[i]))
-				{
-					free(remainders);
-					return 0;
-				}
-				--decimals_remaining;
-			}
-		}
-		else
+		if (first != 0 &&
+			(!write_char(chunk[0]) || (decimal_digits > 0 && !write_char('.'))))
 		{
-			for (size_t i = 0; i < DIGITS_PER_BLOCK && decimals_remaining > 0; ++i)
-			{
-				if (!write_char(chunk[i]))
-				{
-					free(remainders);
-					return 0;
-				}
-				--decimals_remaining;
-			}
+			free(remainders);
+			fprintf(stderr, "Unable to write output.\n");
+			return 0;
 		}
+
+		if (!write_span(chunk + first, count))
+		{
+			free(remainders);
+			fprintf(stderr, "Unable to write output.\n");
+			return 0;
+		}
+		decimals_remaining -= count;
 	}
 
 	free(remainders);

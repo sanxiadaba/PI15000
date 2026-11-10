@@ -13,7 +13,6 @@ static int answer[STORED_DIGITS + 1];
 
 int main(void)
 {
-	answer[0] = 1;
 	for (int term = SERIES_TERMS; term >= 1; --term)
 	{
 		int carry = 0;
