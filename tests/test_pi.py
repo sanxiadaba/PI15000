@@ -73,8 +73,8 @@ def expect_equal(label: str, actual: str, expected: str) -> None:
         min(len(actual), len(expected)),
     )
     raise AssertionError(
-        f"{label}: 第 {index} 个字符不对；"
-        f"实际 {actual[index:index + 20]!r}，期望 {expected[index:index + 20]!r}"
+        f"{label}: first difference at index {index}; "
+        f"actual {actual[index:index + 20]!r}, expected {expected[index:index + 20]!r}"
     )
 
 
@@ -82,7 +82,7 @@ def check_exit(program: Path, arguments: tuple[str, ...], expected: int) -> None
     result = run(program, *arguments, check=False)
     if result.returncode != expected:
         raise AssertionError(
-            f"{program.name} {arguments} 退出码 {result.returncode}，期望 {expected}"
+            f"{program.name} {arguments} exited {result.returncode}, expected {expected}"
         )
 
 
@@ -96,13 +96,15 @@ def check_write_failure(program: Path) -> None:
             [str(program), "16"], stdout=sink, stderr=subprocess.PIPE, timeout=120
         )
     if result.returncode != 1:
-        raise AssertionError(f"写输出失败时退出码是 {result.returncode}，期望 1")
+        raise AssertionError(f"exit code {result.returncode} on write failure, expected 1")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bin-dir", type=Path, required=True)
-    parser.add_argument("--slow", action="store_true", help="另外核对 54936 和 100000 位")
+    parser.add_argument(
+        "--slow", action="store_true", help="also verify 54936 and 100000 digits"
+    )
     arguments = parser.parse_args()
     bin_dir = arguments.bin_dir.resolve()
 
@@ -135,7 +137,7 @@ def main() -> int:
             run(pi_program, str(decimals)).stdout,
             expect_pi(digits, decimals),
         )
-    expect_equal("pi 默认", run(pi_program).stdout, expect_pi(digits, 15000))
+    expect_equal("pi default", run(pi_program).stdout, expect_pi(digits, 15000))
 
     golf = run(program("pi_golf")).stdout
     expect_equal("pi_golf", golf, digits[:15000])
@@ -146,7 +148,7 @@ def main() -> int:
 
     help_result = run(pi_program, "--help")
     if "用法" not in help_result.stdout or help_result.stderr:
-        raise AssertionError("pi --help 应该把用法写到 stdout，stderr 保持干净")
+        raise AssertionError("pi --help must print usage to stdout, nothing to stderr")
     check_exit(pi_program, ("-h",), 0)
 
     check_write_failure(pi_program)
@@ -158,7 +160,7 @@ def main() -> int:
             expect_pi(digits, decimals),
         )
 
-    print("全部通过。")
+    print("all tests passed")
     return 0
 
 
