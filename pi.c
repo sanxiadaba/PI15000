@@ -1,12 +1,12 @@
 /*
  * 用 spigot 算法逐组生成 pi 的数字。
  *
- * 级数以 10000 为基数，每消耗 14 个级数项产出一组 4 位数字，也就是平均
- * 每个数字 3.5 项。余数数组随轮次从高位往低位收缩，空间 O(n)、时间 O(n^2)。
+ * 级数以 1e9 为基数，每消耗 30 个级数项产出一组 9 位数字，也就是平均
+ * 每个数字 3.33 项。余数数组随轮次从高位往低位收缩，空间 O(n)、时间 O(n^2)。
  *
- * 每组算完可能满 10000，也就是比 4 位多出一位：那一位属于刚写下的前一组，
- * 必须回填进去。漏掉这一步，几十万位以内就会在某个位置算错一位，随后整组
- * 变成 10000 而无法用 4 位表示。
+ * 每组算完可能满 1e9，也就是比 9 位多出一位：那一位属于刚写下的前一组，
+ * 必须回填进去。漏掉这一步，几万位之后就会在某个位置差一位，随后整组
+ * 变成 1e9 而无法用 9 位表示。
  */
 
 #include <errno.h>
@@ -19,23 +19,53 @@
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
+#include <windows.h>
 #endif
 
 enum
 {
-	BASE = 10000,
+	BASE = 1000000000,
 	INITIAL_REMAINDER = BASE / 5,
-	TERMS_PER_BLOCK = 14,
-	DIGITS_PER_BLOCK = 4,
+	TERMS_PER_BLOCK = 30,
+	DIGITS_PER_BLOCK = 9,
 	DEFAULT_DECIMAL_DIGITS = 15000
 };
 
+/*
+ * 提示信息是中文、源码是 UTF-8。Windows 控制台默认按本地代码页解释字节，
+ * 直接写会变成乱码，所以对着控制台时改用宽字符；重定向到文件或管道时
+ * 保持 UTF-8 字节，退出码和内容都不受终端影响。
+ */
+static void write_text(FILE *stream, const char *text)
+{
+#ifdef _WIN32
+	if (_isatty(_fileno(stream)) != 0)
+	{
+		wchar_t wide[1024];
+		int length = MultiByteToWideChar(CP_UTF8, 0, text, -1, wide, 1024);
+		DWORD written;
+
+		/* 末尾的 NUL 不算正文；失败就退回字节输出，至少不丢消息。 */
+		if (length > 1 &&
+			WriteConsoleW((HANDLE)_get_osfhandle(_fileno(stream)), wide,
+				(DWORD)(length - 1), &written, NULL) != 0)
+		{
+			return;
+		}
+	}
+#endif
+	fputs(text, stream);
+}
+
 static void print_usage(FILE *stream, const char *program)
 {
-	fprintf(stream,
+	char text[1024];
+
+	snprintf(text, sizeof(text),
 		"用法：%s [小数位数]\n"
 		"省略参数时输出 %d 位；位数是截断的，不做四舍五入。\n",
 		program, DEFAULT_DECIMAL_DIGITS);
+	write_text(stream, text);
 }
 
 static int parse_decimal_digits(const char *text, size_t *value)
@@ -59,26 +89,21 @@ static int parse_decimal_digits(const char *text, size_t *value)
 	return 1;
 }
 
-/* 把 carry 加到 digits[0..count) 这个十进制数上，处理连续的 9。 */
-static int add_carry(char *digits, size_t count, uint64_t carry)
+/* 把 carry 加进已写出的组里，返回 0 表示整串都被进位吃掉了（不可能发生）。 */
+static int add_carry(uint32_t *groups, size_t count, uint64_t carry)
 {
 	while (carry != 0)
 	{
-		unsigned digit;
+		uint64_t value;
 
 		if (count == 0)
 		{
 			return 0;
 		}
 		--count;
-		digit = (unsigned)(digits[count] - '0') + (unsigned)(carry % 10);
-		carry /= 10;
-		if (digit >= 10)
-		{
-			digit -= 10;
-			++carry;
-		}
-		digits[count] = (char)('0' + digit);
+		value = (uint64_t)groups[count] + carry;
+		groups[count] = (uint32_t)(value % BASE);
+		carry = value / BASE;
 	}
 
 	return 1;
@@ -86,45 +111,50 @@ static int add_carry(char *digits, size_t count, uint64_t carry)
 
 static int write_pi(size_t decimal_digits)
 {
-	size_t significant_digits;
+	size_t significant_digits; /* 整数位 3 加上 d 位小数 */
 	size_t blocks;
 	size_t terms;
 	size_t digit_count;
 	size_t written = 0;
+	size_t length;
 	uint64_t accumulator = 0;
-	uint64_t *remainders;
-	char *digits;
+	uint32_t *remainders;
+	uint32_t *groups;
+	char *text;
 	int status = 0;
 
-	if (decimal_digits > (SIZE_MAX - 16) / 8)
+	/*
+	 * 先挡尺寸计算本身会溢出的输入，再挡余数装不进 uint32_t 的输入。
+	 * 内层循环里 accumulator < 3*BASE、remainders[] < 2*terms，于是
+	 * accumulator*index + remainders[index]*BASE < 5*BASE*terms，
+	 * 限住 terms 就保证这个乘积落在 uint64_t 里；实际上 malloc 会先失败。
+	 */
+	if (decimal_digits >= SIZE_MAX / 4)
 	{
-		fprintf(stderr, "位数太大。\n");
+		write_text(stderr, "位数太大。\n");
 		return 0;
 	}
 
-	significant_digits = decimal_digits + 1; /* 整数位 3 加上 d 位小数 */
+	significant_digits = decimal_digits + 1;
 	blocks = (significant_digits + DIGITS_PER_BLOCK - 1) / DIGITS_PER_BLOCK;
 	terms = blocks * TERMS_PER_BLOCK;
 	digit_count = blocks * DIGITS_PER_BLOCK;
 
-	/*
-	 * 内层循环里 accumulator 不超过 2002 * BASE，remainders[] 不超过 2 * terms，
-	 * 于是 accumulator * index + remainders[index] * BASE < 2002 * BASE * terms。
-	 * 限住 terms 就保证这个乘积落在 uint64_t 里；实际上 malloc 会先失败。
-	 */
-	if (terms > UINT64_C(3000000000))
+	if (terms > UINT32_MAX / 2)
 	{
-		fprintf(stderr, "位数太大。\n");
+		write_text(stderr, "位数太大。\n");
 		return 0;
 	}
 
 	remainders = malloc((terms + 1) * sizeof(*remainders));
-	digits = malloc(digit_count);
-	if (remainders == NULL || digits == NULL)
+	groups = malloc(blocks * sizeof(*groups));
+	text = malloc(digit_count + 2);
+	if (remainders == NULL || groups == NULL || text == NULL)
 	{
-		fprintf(stderr, "内存不足，算不了这么多位。\n");
+		write_text(stderr, "内存不足，算不了这么多位。\n");
 		free(remainders);
-		free(digits);
+		free(groups);
+		free(text);
 		return 0;
 	}
 
@@ -145,54 +175,52 @@ static int write_pi(size_t decimal_digits)
 			uint64_t denominator = UINT64_C(2) * (uint64_t)index - 1;
 
 			accumulator = accumulator * (uint64_t)index +
-				remainders[index] * BASE;
-			remainders[index] = accumulator % denominator;
+				(uint64_t)remainders[index] * BASE;
+			remainders[index] = (uint32_t)(accumulator % denominator);
 			accumulator /= denominator;
 			--index;
 		}
 
 		group = low + accumulator / BASE;
-		if (group >= BASE)
+		while (group >= BASE)
 		{
-			if (!add_carry(digits, written, group / BASE))
+			if (!add_carry(groups, written, group / BASE))
 			{
-				fprintf(stderr, "内部计算溢出。\n");
+				write_text(stderr, "内部计算溢出。\n");
 				goto done;
 			}
 			group %= BASE;
 		}
-
-		for (size_t k = DIGITS_PER_BLOCK; k > 0; --k)
-		{
-			digits[written + k - 1] = (char)('0' + (int)(group % 10));
-			group /= 10;
-		}
-		written += DIGITS_PER_BLOCK;
+		groups[written++] = (uint32_t)group;
 	}
 
-	if (written < significant_digits)
+	if (written != blocks)
 	{
-		fprintf(stderr, "内部计算不足位数。\n");
+		write_text(stderr, "内部计算不足位数。\n");
 		goto done;
 	}
 
-	if (fwrite(digits, 1, 1, stdout) != 1)
+	for (size_t i = 0; i < blocks; ++i)
 	{
-		fprintf(stderr, "写输出失败。\n");
-		goto done;
+		snprintf(text + i * DIGITS_PER_BLOCK, DIGITS_PER_BLOCK + 1, "%09" PRIu32, groups[i]);
 	}
-	if (decimal_digits > 0)
+
+	if (decimal_digits == 0)
 	{
-		if (fputc('.', stdout) == EOF ||
-			fwrite(digits + 1, 1, decimal_digits, stdout) != decimal_digits)
-		{
-			fprintf(stderr, "写输出失败。\n");
-			goto done;
-		}
+		text[1] = '\n';
+		length = 2;
 	}
-	if (fputc('\n', stdout) == EOF)
+	else
 	{
-		fprintf(stderr, "写输出失败。\n");
+		memmove(text + 2, text + 1, decimal_digits);
+		text[1] = '.';
+		text[decimal_digits + 2] = '\n';
+		length = decimal_digits + 3;
+	}
+
+	if (fwrite(text, 1, length, stdout) != length)
+	{
+		write_text(stderr, "写输出失败。\n");
 		goto done;
 	}
 
@@ -200,18 +228,19 @@ static int write_pi(size_t decimal_digits)
 
 done:
 	free(remainders);
-	free(digits);
+	free(groups);
+	free(text);
 	return status;
 }
 
 int main(int argc, char **argv)
 {
 	size_t decimal_digits = DEFAULT_DECIMAL_DIGITS;
-	int written;
 
 #ifdef _WIN32
 	/* 各平台都输出 LF，文件比对不用再管换行。 */
 	(void)_setmode(_fileno(stdout), _O_BINARY);
+	(void)_setmode(_fileno(stderr), _O_BINARY);
 #endif
 
 	if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0))
@@ -225,8 +254,7 @@ int main(int argc, char **argv)
 		return 2;
 	}
 
-	written = write_pi(decimal_digits);
-	if (!written)
+	if (!write_pi(decimal_digits))
 	{
 		return 1;
 	}

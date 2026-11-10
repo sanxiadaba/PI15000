@@ -4,15 +4,23 @@
 from __future__ import annotations
 
 import argparse
-from decimal import Decimal, localcontext
+import math
 from pathlib import Path
 import subprocess
 import sys
 
 C3_OVER_24 = 640320**3 // 24
 
-FAST_SIZES = (0, 1, 2, 3, 4, 5, 7, 31, 100, 1000, 15000, 20000)
+# 参考值多算 20 位再截断：整数开方的向下取整误差远小于这个余量。
+GUARD_DIGITS = 20
+
+# 0~11 覆盖分组边界（每组 9 位），后面挑几个常规尺寸。
+FAST_SIZES = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 17, 18, 19, 31, 100, 1000, 15000, 20000)
 SLOW_SIZES = (54936, 100000)
+
+# 十万位整数转成字符串会撞上 Python 3.11 的位数上限。
+if hasattr(sys, "set_int_max_str_digits"):
+    sys.set_int_max_str_digits(0)
 
 
 def binary_split(start: int, end: int) -> tuple[int, int, int]:
@@ -33,11 +41,12 @@ def binary_split(start: int, end: int) -> tuple[int, int, int]:
 
 def pi_digits(count: int) -> str:
     """pi 的前 count 位数字，去掉小数点：count=6 时是 "314159"。"""
-    _, q, t = binary_split(0, count // 14 + 2)
-    with localcontext() as context:
-        context.prec = count + 30
-        value = Decimal(q * 426880) * Decimal(10005).sqrt() / Decimal(t)
-        return format(value, "f").replace(".", "")[:count]
+    extra = count + GUARD_DIGITS
+    _, q, t = binary_split(0, extra // 14 + 2)
+    # pi = q * 426880 * sqrt(10005) / t。把小数点右移 extra 位后取整，
+    # 就得到 floor(pi * 10^extra)，前 count 位就是我们要的数字。
+    root = math.isqrt(10005 * 10 ** (2 * extra))
+    return str(q * 426880 * root // t)[:count]
 
 
 def expect_pi(digits: str, decimals: int) -> str:
@@ -47,10 +56,8 @@ def expect_pi(digits: str, decimals: int) -> str:
 
 
 def half_pi(digits: str) -> str:
-    with localcontext() as context:
-        context.prec = 3000
-        value = Decimal(digits[:3000]) / 2
-        return format(value, "f").replace(".", "")
+    """pi/2 的数字串；除以 2 在十进制里精确，直接用整数做。"""
+    return str(int(digits[:3000]) // 2)
 
 
 def run(program: Path, *arguments: str, check: bool = True, timeout: int = 120):
@@ -84,6 +91,13 @@ def check_exit(program: Path, arguments: tuple[str, ...], expected: int) -> None
         raise AssertionError(
             f"{program.name} {arguments} exited {result.returncode}, expected {expected}"
         )
+
+
+def check_usage_on_error(program: Path) -> None:
+    """参数错误时用法只写 stderr，stdout 不许有东西。"""
+    result = run(program, "abc", check=False)
+    if result.returncode != 2 or result.stdout or "用法" not in result.stderr:
+        raise AssertionError("bad argument must exit 2 with usage on stderr only")
 
 
 def check_write_failure(program: Path) -> None:
@@ -139,12 +153,12 @@ def main() -> int:
         )
     expect_equal("pi default", run(pi_program).stdout, expect_pi(digits, 15000))
 
-    golf = run(program("pi_golf")).stdout
-    expect_equal("pi_golf", golf, digits[:15000])
+    expect_equal("pi_golf", run(program("pi_golf")).stdout, digits[:15000])
 
     for bad in ("-1", "1.5", "abc", "99999999999999999999999999999999"):
         check_exit(pi_program, (bad,), 2)
     check_exit(pi_program, ("1", "2"), 2)
+    check_usage_on_error(pi_program)
 
     help_result = run(pi_program, "--help")
     if "用法" not in help_result.stdout or help_result.stderr:
