@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-/* Demonstrate the precision of an ordinary floating-point division. */
+/* 普通浮点除法：2/3 的精度就到这儿了。 */
 int main(void)
 {
 	const int numerator = 2;

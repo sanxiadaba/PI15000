@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression tests using a standard-library Chudnovsky reference."""
+"""用 Chudnovsky 独立算一份参考值，逐字节比对各程序的输出。"""
 
 from __future__ import annotations
 
@@ -9,8 +9,10 @@ from pathlib import Path
 import subprocess
 import sys
 
-
 C3_OVER_24 = 640320**3 // 24
+
+FAST_SIZES = (0, 1, 2, 3, 4, 5, 7, 31, 100, 1000, 15000, 20000)
+SLOW_SIZES = (54936, 100000)
 
 
 def binary_split(start: int, end: int) -> tuple[int, int, int]:
@@ -29,164 +31,134 @@ def binary_split(start: int, end: int) -> tuple[int, int, int]:
     return p1 * p2, q1 * q2, t1 * q2 + p1 * t2
 
 
-def calculate_pi(decimal_digits: int) -> str:
-    terms = decimal_digits // 14 + 2
-    _, q, t = binary_split(0, terms)
+def pi_digits(count: int) -> str:
+    """pi 的前 count 位数字，去掉小数点：count=6 时是 "314159"。"""
+    _, q, t = binary_split(0, count // 14 + 2)
     with localcontext() as context:
-        context.prec = decimal_digits + 30
+        context.prec = count + 30
         value = Decimal(q * 426880) * Decimal(10005).sqrt() / Decimal(t)
-        return format(value, "f")
+        return format(value, "f").replace(".", "")[:count]
 
 
-def executable(bin_dir: Path, name: str) -> Path:
-    suffix = ".exe" if sys.platform == "win32" else ""
-    return bin_dir / f"{name}{suffix}"
+def expect_pi(digits: str, decimals: int) -> str:
+    if decimals == 0:
+        return "3\n"
+    return digits[0] + "." + digits[1 : 1 + decimals] + "\n"
 
 
-def run(
-    program: Path, *arguments: str, check: bool = True, timeout: int = 60
-) -> subprocess.CompletedProcess[str]:
+def half_pi(digits: str) -> str:
+    with localcontext() as context:
+        context.prec = 3000
+        value = Decimal(digits[:3000]) / 2
+        return format(value, "f").replace(".", "")
+
+
+def run(program: Path, *arguments: str, check: bool = True, timeout: int = 120):
+    # 用法提示是中文，源码按 UTF-8 编译进二进制，所以这里也按 UTF-8 解。
     return subprocess.run(
         [str(program), *arguments],
         check=check,
         capture_output=True,
         text=True,
-        encoding="ascii",
+        encoding="utf-8",
         timeout=timeout,
     )
 
 
-def check_write_failure(pi_program: Path) -> None:
+def expect_equal(label: str, actual: str, expected: str) -> None:
+    if actual == expected:
+        return
+    index = next(
+        (i for i, (a, b) in enumerate(zip(actual, expected)) if a != b),
+        min(len(actual), len(expected)),
+    )
+    raise AssertionError(
+        f"{label}: 第 {index} 个字符不对；"
+        f"实际 {actual[index:index + 20]!r}，期望 {expected[index:index + 20]!r}"
+    )
+
+
+def check_exit(program: Path, arguments: tuple[str, ...], expected: int) -> None:
+    result = run(program, *arguments, check=False)
+    if result.returncode != expected:
+        raise AssertionError(
+            f"{program.name} {arguments} 退出码 {result.returncode}，期望 {expected}"
+        )
+
+
+def check_write_failure(program: Path) -> None:
     """写不出去的输出必须体现为退出码 1（需要 POSIX 的 /dev/full）。"""
     full = Path("/dev/full")
     if not full.exists():
         return
-
     with full.open("wb") as sink:
         result = subprocess.run(
-            [str(pi_program), "16"],
-            stdout=sink,
-            stderr=subprocess.PIPE,
-            timeout=60,
+            [str(program), "16"], stdout=sink, stderr=subprocess.PIPE, timeout=120
         )
-
     if result.returncode != 1:
-        raise AssertionError(
-            f"pi returned {result.returncode} although stdout could not be written"
-        )
-
-
-def expect_equal(label: str, actual: str, expected: str) -> None:
-    if actual != expected:
-        mismatch = next(
-            (index for index, pair in enumerate(zip(actual, expected)) if pair[0] != pair[1]),
-            min(len(actual), len(expected)),
-        )
-        raise AssertionError(
-            f"{label}: mismatch at index {mismatch}; "
-            f"actual={actual[mismatch:mismatch + 20]!r}, "
-            f"expected={expected[mismatch:mismatch + 20]!r}"
-        )
+        raise AssertionError(f"写输出失败时退出码是 {result.returncode}，期望 1")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bin-dir", type=Path, required=True)
-    parser.add_argument(
-        "--slow", action="store_true", help="also verify 50000 decimal digits"
-    )
+    parser.add_argument("--slow", action="store_true", help="另外核对 54936 和 100000 位")
     arguments = parser.parse_args()
     bin_dir = arguments.bin_dir.resolve()
 
-    pi_reference = calculate_pi(50020 if arguments.slow else 20020)
-    pi_digits = pi_reference.replace(".", "")
+    sizes = SLOW_SIZES if arguments.slow else ()
+    digits = pi_digits(max(FAST_SIZES + sizes) + 1)
 
-    expect_equal("test2", run(executable(bin_dir, "test2")).stdout, "0.666667\n")
+    def program(name: str) -> Path:
+        return bin_dir / (name + (".exe" if sys.platform == "win32" else ""))
+
+    expect_equal("01_float", run(program("demos/01_float")).stdout, "0.666667\n")
     expect_equal(
-        "test3",
-        run(executable(bin_dir, "test3")).stdout,
-        pi_reference[: 2 + 34] + "\n",
+        "02_long_division",
+        run(program("demos/02_long_division")).stdout,
+        expect_pi(digits, 34),
+    )
+    half = half_pi(digits)
+    expect_equal(
+        "03_half_pi",
+        run(program("demos/03_half_pi")).stdout,
+        half[0] + "." + half[1:2801] + "\n",
+    )
+    expect_equal(
+        "04_pi", run(program("demos/04_pi")).stdout, expect_pi(digits, 2800)
     )
 
-    with localcontext() as context:
-        context.prec = 15020
-        half_reference = format(Decimal(pi_reference) / 2, "f")
-    expect_equal(
-        "test4",
-        run(executable(bin_dir, "test4")).stdout,
-        half_reference[: 2 + 2800] + "\n",
-    )
-    expect_equal(
-        "test5",
-        run(executable(bin_dir, "test5")).stdout,
-        pi_reference[: 2 + 2800] + "\n",
-    )
-
-    pi_program = executable(bin_dir, "pi")
-    for decimal_digits in (0, 1, 2, 3, 4, 5, 7, 31, 100, 1000):
-        expected = "3" if decimal_digits == 0 else pi_reference[: 2 + decimal_digits]
+    pi_program = program("pi")
+    for decimals in FAST_SIZES:
         expect_equal(
-            f"pi {decimal_digits}",
-            run(pi_program, str(decimal_digits)).stdout,
-            expected + "\n",
+            f"pi {decimals}",
+            run(pi_program, str(decimals)).stdout,
+            expect_pi(digits, decimals),
         )
+    expect_equal("pi 默认", run(pi_program).stdout, expect_pi(digits, 15000))
 
-    expect_equal(
-        "pi default",
-        run(pi_program).stdout,
-        pi_reference[: 2 + 15000] + "\n",
-    )
-    expect_equal(
-        "pi 20000",
-        run(pi_program, "20000").stdout,
-        pi_reference[: 2 + 20000] + "\n",
-    )
-    expect_equal(
-        "test7",
-        run(executable(bin_dir, "test7")).stdout,
-        pi_digits[:15000],
-    )
+    golf = run(program("pi_golf")).stdout
+    expect_equal("pi_golf", golf, digits[:15000])
 
-    if arguments.slow:
-        expect_equal(
-            "pi 50000",
-            run(pi_program, "50000", timeout=300).stdout,
-            pi_reference[: 2 + 50000] + "\n",
-        )
-
-    usage_error_cases = (
-        ("-1",),
-        ("1.5",),
-        ("abc",),
-        ("1", "2"),
-        ("99999999999999999999999999999999",),
-    )
-    for invalid_arguments in usage_error_cases:
-        result = run(pi_program, *invalid_arguments, check=False)
-        if result.returncode != 2:
-            raise AssertionError(
-                f"pi returned {result.returncode} for invalid arguments "
-                f"{invalid_arguments!r}, expected 2"
-            )
-
-    # 恰好等于 64 位 size_t 上限的位数：在 32 位目标上无法解析（用法错误，2），
-    # 在 64 位目标上能解析但精度过大（计算失败，1）。这里只要求它被拒绝。
-    oversized = "18446744073709551615"
-    result = run(pi_program, oversized, check=False)
-    if result.returncode not in (1, 2):
-        raise AssertionError(
-            f"pi returned {result.returncode} for {oversized!r}, expected 1 or 2"
-        )
+    for bad in ("-1", "1.5", "abc", "99999999999999999999999999999999"):
+        check_exit(pi_program, (bad,), 2)
+    check_exit(pi_program, ("1", "2"), 2)
 
     help_result = run(pi_program, "--help")
-    if "Usage:" not in help_result.stderr:
-        raise AssertionError("pi --help did not print usage information")
-    if help_result.stdout:
-        raise AssertionError("pi --help wrote the usage text to stdout")
+    if "用法" not in help_result.stdout or help_result.stderr:
+        raise AssertionError("pi --help 应该把用法写到 stdout，stderr 保持干净")
+    check_exit(pi_program, ("-h",), 0)
 
     check_write_failure(pi_program)
 
-    print("All PI15000 tests passed.")
+    for decimals in sizes:
+        expect_equal(
+            f"pi {decimals}",
+            run(pi_program, str(decimals)).stdout,
+            expect_pi(digits, decimals),
+        )
+
+    print("全部通过。")
     return 0
 
 

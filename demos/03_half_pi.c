@@ -1,6 +1,10 @@
 #include <stdio.h>
 
-/* The test4 series evaluates pi / 2; multiply the result by two. */
+/*
+ * 用十进制数组做长乘长除，逐项算
+ *   pi / 2 = 1 + 1/3 * (1 + 2/5 * (1 + 3/7 * (...)))
+ * 每一项乘 term 再除以 2*term+1，从级数尾部往前推。
+ */
 enum
 {
 	DECIMAL_DIGITS = 2800,
@@ -34,15 +38,6 @@ int main(void)
 		}
 		answer[0] += 1;
 	}
-
-	int carry = 0;
-	for (int i = STORED_DIGITS; i > 0; --i)
-	{
-		const int value = answer[i] * 2 + carry;
-		answer[i] = value % 10;
-		carry = value / 10;
-	}
-	answer[0] = answer[0] * 2 + carry;
 
 	if (printf("%d.", answer[0]) < 0)
 	{

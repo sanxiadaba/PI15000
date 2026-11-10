@@ -1,10 +1,6 @@
 #include <stdio.h>
 
-/*
- * Evaluate
- *   pi / 2 = 1 + 1/3 * (1 + 2/5 * (1 + 3/7 * (...)))
- * with decimal long multiplication and division.
- */
+/* 上一步的级数算出来的是 pi / 2，这里整体乘 2 得到 pi。 */
 enum
 {
 	DECIMAL_DIGITS = 2800,
@@ -38,6 +34,15 @@ int main(void)
 		}
 		answer[0] += 1;
 	}
+
+	int carry = 0;
+	for (int i = STORED_DIGITS; i > 0; --i)
+	{
+		const int value = answer[i] * 2 + carry;
+		answer[i] = value % 10;
+		carry = value / 10;
+	}
+	answer[0] = answer[0] * 2 + carry;
 
 	if (printf("%d.", answer[0]) < 0)
 	{

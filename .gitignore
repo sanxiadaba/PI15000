@@ -2,3 +2,11 @@
 *.o
 *.out
 __pycache__/
+
+# Linux/macOS 上就地生成的二进制
+/pi
+/pi_golf
+/demos/01_float
+/demos/02_long_division
+/demos/03_half_pi
+/demos/04_pi
