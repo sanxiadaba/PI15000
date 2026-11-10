@@ -22,10 +22,10 @@ spigot 算法。最终的 `test7.c` 是标准 C11 版本的紧凑写法，可输
 
 ## 前置依赖
 
-- C11 编译器：目前只在 Windows + MinGW-w64 gcc 4.9.4（i686）上实测通过，
-  Linux/macOS 与 clang 尚未实测，`Makefile` 已按可移植方式编写
+- C11 编译器：Windows 上用 MinGW-w64 gcc 4.9.4（i686）和 MSVC 14.44（x64，
+  `/std:c11`）实测通过；Linux/macOS 的 gcc、clang 由 CI 覆盖，本地未实测
 - GNU make
-- Python 3：只有 `make test` 需要，且仅用标准库
+- Python 3：只有 `make test` / `make test-slow` 需要，且仅用标准库
 
 ## 构建和测试
 
@@ -45,7 +45,13 @@ make test
 
 构建使用 C11，并开启 `-Wall -Wextra -Wpedantic -Wconversion -Werror`。
 测试仅依赖 Python 3 标准库，通过 Chudnovsky 算法生成独立参考值，覆盖
-完整 15000 位输出、短输出边界和非法参数。
+完整 15000 位输出、短输出边界、退出码契约和非法参数。
+
+`make test` 大约需要 7 秒；`make test-slow` 会额外核对 50000 位，本机约 24 秒：
+
+```bash
+make test-slow
+```
 
 测试脚本默认查找 `python3`，找不到时回退到 `python`；也可以显式指定：
 
@@ -54,6 +60,18 @@ make test PYTHON=python3.12
 ```
 
 `make clean` 会删除构建产物。
+
+仓库附带 GitHub Actions 工作流 `.github/workflows/ci.yml`：ubuntu（gcc、clang）、
+macOS（clang）与 Windows（MSYS2 + MinGW64）各跑一遍 `make test`，其中
+ubuntu + gcc 额外跑 `make test-slow`。
+
+## 验证状态
+
+| 环境 | 构建 | 输出校验 |
+| --- | --- | --- |
+| Windows + MinGW-w64 gcc 4.9.4（i686，`-O3`） | 零警告 | `make test`、`make test-slow` 全绿 |
+| Windows + MSVC 14.44（x64，`/std:c11 /W3 /O2`） | 零警告 | 20000 位与 gcc 版逐字节一致 |
+| Linux/macOS + gcc/clang | 由 CI 覆盖，本地未实测 | 同上 |
 
 ## 使用
 
