@@ -1,5 +1,7 @@
 # PI15000
 
+[![CI](https://github.com/sanxiadaba/PI15000/actions/workflows/ci.yml/badge.svg)](https://github.com/sanxiadaba/PI15000/actions/workflows/ci.yml)
+
 这个仓库从普通浮点除法开始，逐步推导到能够连续生成圆周率数字的
 spigot 算法。最终的 `test7.c` 是标准 C11 版本的紧凑写法，可输出
 15000 个有效数字；`test6.c` 是可读、可配置和经过测试的正式版本，
@@ -63,7 +65,7 @@ make test PYTHON=python3.12
 
 仓库附带 GitHub Actions 工作流 `.github/workflows/ci.yml`：ubuntu（gcc、clang）、
 macOS（clang）与 Windows（MSYS2 + MinGW64）各跑一遍 `make test`，其中
-ubuntu + gcc 额外跑 `make test-slow`。
+ubuntu + gcc 额外跑 `make test-slow`。四个 jobs 在首个提交上全部通过。
 
 ## 验证状态
 
@@ -71,7 +73,7 @@ ubuntu + gcc 额外跑 `make test-slow`。
 | --- | --- | --- |
 | Windows + MinGW-w64 gcc 4.9.4（i686，`-O3`） | 零警告 | `make test`、`make test-slow` 全绿 |
 | Windows + MSVC 14.44（x64，`/std:c11 /W3 /O2`） | 零警告 | 20000 位与 gcc 版逐字节一致 |
-| Linux/macOS + gcc/clang | 由 CI 覆盖，本地未实测 | 同上 |
+| Linux/macOS + gcc/clang | CI 全绿（含 `/dev/full` 写失败用例） | 同上 |
 
 ## 使用
 
