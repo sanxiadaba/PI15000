@@ -175,5 +175,10 @@ int main(int argc, char **argv)
 	}
 
 	(void)setvbuf(stdout, output_buffer, _IOFBF, sizeof(output_buffer));
-	return write_pi(decimal_digits) ? 0 : 1;
+	if (!write_pi(decimal_digits))
+	{
+		return 1;
+	}
+
+	return fflush(stdout) != 0 || ferror(stdout) ? 1 : 0;
 }

@@ -6,6 +6,10 @@ int main(void)
 	const int numerator = 2;
 	const int denominator = 3;
 
-	printf("%.6f\n", (double)numerator / (double)denominator);
-	return 0;
+	if (printf("%.6f\n", (double)numerator / (double)denominator) < 0)
+	{
+		return 1;
+	}
+
+	return fflush(stdout) != 0 || ferror(stdout) ? 1 : 0;
 }

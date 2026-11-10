@@ -1,7 +1,12 @@
 ifeq ($(origin CC),default)
 CC := gcc
 endif
-PYTHON ?= python
+# Python 3 在各平台的名字不一致：优先 python3，找不到再退回 python。
+ifeq ($(OS),Windows_NT)
+PYTHON ?= $(shell where python3 >NUL 2>NUL && echo python3 || echo python)
+else
+PYTHON ?= $(shell command -v python3 >/dev/null 2>&1 && echo python3 || echo python)
+endif
 CFLAGS ?= -O3
 STRICT_FLAGS := -std=c11 -Wall -Wextra -Wpedantic -Wconversion -Werror
 

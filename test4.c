@@ -51,5 +51,10 @@ int main(void)
 		}
 	}
 
-	return putchar('\n') == EOF ? 1 : 0;
+	if (putchar('\n') == EOF)
+	{
+		return 1;
+	}
+
+	return fflush(stdout) != 0 || ferror(stdout) ? 1 : 0;
 }
