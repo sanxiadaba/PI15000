@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unix:
+    name: ${{ matrix.os }} / ${{ matrix.cc }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cc: gcc
+            cflags: -O3
+          - os: ubuntu-latest
+            cc: clang
+            cflags: -O1 -g
+          - os: macos-latest
+            cc: clang
+            cflags: -O2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: make CC=${{ matrix.cc }} CFLAGS="${{ matrix.cflags }}"
+
+      - name: Test
+        run: make test CC=${{ matrix.cc }} CFLAGS="${{ matrix.cflags }}"
+
+      - name: Slow regression (15000 + 50000 digits)
+        if: matrix.os == 'ubuntu-latest' && matrix.cc == 'gcc'
+        run: make test-slow CC=${{ matrix.cc }} CFLAGS="${{ matrix.cflags }}"
+
+  windows:
+    name: windows-latest / mingw64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gcc
+            make
+            mingw-w64-x86_64-python
+
+      - name: Build
+        shell: msys2 {0}
+        run: make CC=gcc
+
+      - name: Test
+        shell: msys2 {0}
+        run: make test PYTHON=python
