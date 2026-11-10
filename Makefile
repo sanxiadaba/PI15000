@@ -1,7 +1,7 @@
 ifeq ($(origin CC),default)
 CC := gcc
 endif
-# Python 3 在各平台的名字不一致：优先 python3，找不到再退回 python。
+# Python 3 is not always named "python3": prefer it, fall back to "python".
 ifeq ($(OS),Windows_NT)
 PYTHON ?= $(shell where python3 >NUL 2>NUL && echo python3 || echo python)
 else
@@ -22,7 +22,7 @@ endif
 PROGRAMS := test2 test3 test4 test5 pi test7
 TARGETS := $(addsuffix $(EXEEXT),$(PROGRAMS))
 
-.PHONY: all clean test
+.PHONY: all clean test test-slow
 
 all: $(TARGETS)
 
@@ -46,6 +46,9 @@ test7$(EXEEXT): test7.c
 
 test: all
 	$(PYTHON) tests/test_pi.py --bin-dir .
+
+test-slow: all
+	$(PYTHON) tests/test_pi.py --bin-dir . --slow
 
 clean:
 	$(CLEAN)

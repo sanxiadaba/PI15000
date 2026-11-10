@@ -43,15 +43,37 @@ def executable(bin_dir: Path, name: str) -> Path:
     return bin_dir / f"{name}{suffix}"
 
 
-def run(program: Path, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run(
+    program: Path, *arguments: str, check: bool = True, timeout: int = 60
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(program), *arguments],
         check=check,
         capture_output=True,
         text=True,
         encoding="ascii",
-        timeout=60,
+        timeout=timeout,
     )
+
+
+def check_write_failure(pi_program: Path) -> None:
+    """写不出去的输出必须体现为退出码 1（需要 POSIX 的 /dev/full）。"""
+    full = Path("/dev/full")
+    if not full.exists():
+        return
+
+    with full.open("wb") as sink:
+        result = subprocess.run(
+            [str(pi_program), "16"],
+            stdout=sink,
+            stderr=subprocess.PIPE,
+            timeout=60,
+        )
+
+    if result.returncode != 1:
+        raise AssertionError(
+            f"pi returned {result.returncode} although stdout could not be written"
+        )
 
 
 def expect_equal(label: str, actual: str, expected: str) -> None:
@@ -70,10 +92,13 @@ def expect_equal(label: str, actual: str, expected: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bin-dir", type=Path, required=True)
+    parser.add_argument(
+        "--slow", action="store_true", help="also verify 50000 decimal digits"
+    )
     arguments = parser.parse_args()
     bin_dir = arguments.bin_dir.resolve()
 
-    pi_reference = calculate_pi(20020)
+    pi_reference = calculate_pi(50020 if arguments.slow else 20020)
     pi_digits = pi_reference.replace(".", "")
 
     expect_equal("test2", run(executable(bin_dir, "test2")).stdout, "0.666667\n")
@@ -122,15 +147,44 @@ def main() -> int:
         pi_digits[:15000],
     )
 
-    invalid_cases = (("-1",), ("1.5",), ("abc",), ("1", "2"), ("18446744073709551615",))
-    for invalid_arguments in invalid_cases:
+    if arguments.slow:
+        expect_equal(
+            "pi 50000",
+            run(pi_program, "50000", timeout=300).stdout,
+            pi_reference[: 2 + 50000] + "\n",
+        )
+
+    usage_error_cases = (
+        ("-1",),
+        ("1.5",),
+        ("abc",),
+        ("1", "2"),
+        ("99999999999999999999999999999999",),
+    )
+    for invalid_arguments in usage_error_cases:
         result = run(pi_program, *invalid_arguments, check=False)
-        if result.returncode == 0:
-            raise AssertionError(f"pi accepted invalid arguments: {invalid_arguments!r}")
+        if result.returncode != 2:
+            raise AssertionError(
+                f"pi returned {result.returncode} for invalid arguments "
+                f"{invalid_arguments!r}, expected 2"
+            )
+
+    # 恰好等于 64 位 size_t 上限的位数：在 32 位目标上无法解析（用法错误，2），
+    # 在 64 位目标上能解析但精度过大（计算失败，1）。这里只要求它被拒绝。
+    oversized = "18446744073709551615"
+    result = run(pi_program, oversized, check=False)
+    if result.returncode not in (1, 2):
+        raise AssertionError(
+            f"pi returned {result.returncode} for {oversized!r}, expected 1 or 2"
+        )
 
     help_result = run(pi_program, "--help")
     if "Usage:" not in help_result.stderr:
         raise AssertionError("pi --help did not print usage information")
+    if help_result.stdout:
+        raise AssertionError("pi --help wrote the usage text to stdout")
+
+    check_write_failure(pi_program)
 
     print("All PI15000 tests passed.")
     return 0
